@@ -1,8 +1,9 @@
-import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Random;
 
 public class Main {
-    private static ArrayList<String[]> users = new ArrayList<>();
+    private static HashMap<String, User> usersByUsername = new HashMap<>();
+    private static HashMap<String, User> usersByCardNumber = new HashMap<>();
     private static String loggedInUser = null;
     private static Random random = new Random();
 
@@ -73,13 +74,10 @@ public class Main {
         }
         scanner.close();
     }
-
     private static void register(String username, String password, String fullName, String phoneNumber, String email) {
-        for (String[] user : users) {
-            if (user[0].equals(username)) {
-                System.out.println("Error: username already exists.");
-                return;
-            }
+        if (usersByUsername.containsKey(username)) {
+            System.out.println("Error: username already exists.");
+            return;
         }
         if (phoneNumber.length() != 11 || !phoneNumber.startsWith("09")) {
             System.out.println("Error: invalid phone number.");
@@ -127,53 +125,37 @@ public class Main {
             for (int i = 0; i < 12; i++) {
                 cardNumber += random.nextInt(10);
             }
-        } while (!isCardNumberUnique(cardNumber));
-        String[] newUser = new String[7];
-        newUser[0] = username;
-        newUser[1] = password;
-        newUser[2] = fullName;
-        newUser[3] = cardNumber;
-        newUser[4] = phoneNumber;
-        newUser[5] = email;
-        newUser[6] = "0";
-        users.add(newUser);
+        } while (usersByCardNumber.containsKey(cardNumber));
+        User newUser = new User(username, password, fullName, cardNumber, phoneNumber, email);
+        usersByUsername.put(username, newUser);
+        usersByCardNumber.put(cardNumber, newUser);
         System.out.println("Registered successfully.");
         System.out.println("Assigned card number: " + cardNumber);
-    }
-    private static boolean isCardNumberUnique(String cardNumber) {
-        for (String[] user : users) {
-            if (user[3].equals(cardNumber)) {
-                return false;
-            }
-        }
-        return true;
     }
     private static void login(String username, String password) {
         if (loggedInUser != null) {
             System.out.println("Error: Another user is already logged in.");
             return;
         }
-        for (String[] user : users) {
-            if (user[0].equals(username)) {
-                if (user[1].equals(password)) {
-                    loggedInUser = username;
-                    System.out.println("Login successful.");
-                    return;
-                } else {
-                    System.out.println("Error: incorrect password.");
-                    return;
-                }
-            }
+        User user = usersByUsername.get(username);
+        if (user == null) {
+            System.out.println("Error: username not found.");
+            return;
         }
-        System.out.println("Error: username not found.");
+        if (user.getPassword().equals(password)) {
+            loggedInUser = username;
+            System.out.println("Login successful.");
+        } else {
+            System.out.println("Error: incorrect password.");
+        }
     }
     private static void showBalance() {
         if (loggedInUser == null) {
             System.out.println("Error: You should login first.");
             return;
         }
-        String[] user = getUserByUsername(loggedInUser);
-        System.out.println("Current balance: " + user[6]);
+        User user = usersByUsername.get(loggedInUser);
+        System.out.println("Current balance: " + user.getBalance());
     }
     private static void deposit(String amountStr) {
         if (loggedInUser == null) {
@@ -186,11 +168,9 @@ public class Main {
                 System.out.println("Error: amount must be positive.");
                 return;
             }
-            String[] user = getUserByUsername(loggedInUser);
-            double currentBalance = Double.parseDouble(user[6]);
-            double newBalance = currentBalance + amount;
-            user[6] = String.valueOf(newBalance);
-            System.out.println("Deposit successful. Current balance: " + newBalance);
+            User user = usersByUsername.get(loggedInUser);
+            user.deposit(amount);
+            System.out.println("Deposit successful. Current balance: " + user.getBalance());
         } catch (NumberFormatException e) {
             System.out.println("Error: invalid amount.");
         }
@@ -206,15 +186,13 @@ public class Main {
                 System.out.println("Error: amount must be positive.");
                 return;
             }
-            String[] user = getUserByUsername(loggedInUser);
-            double currentBalance = Double.parseDouble(user[6]);
-            if (currentBalance < amount) {
+            User user = usersByUsername.get(loggedInUser);
+            if (user.getBalance() < amount) {
                 System.out.println("Error: insufficient balance.");
                 return;
             }
-            double newBalance = currentBalance - amount;
-            user[6] = String.valueOf(newBalance);
-            System.out.println("Withdrawal successful. Current balance: " + newBalance);
+            user.withdraw(amount);
+            System.out.println("Withdrawal successful. Current balance: " + user.getBalance());
         } catch (NumberFormatException e) {
             System.out.println("Error: invalid amount.");
         }
@@ -230,30 +208,22 @@ public class Main {
                 System.out.println("Error: amount must be positive.");
                 return;
             }
-            String[] destinationUser = null;
-            for (String[] user : users) {
-                if (user[3].equals(cardNumber)) {
-                    destinationUser = user;
-                    break;
-                }
-            }
+            User destinationUser = usersByCardNumber.get(cardNumber);
             if (destinationUser == null) {
                 System.out.println("Error: destination card number not found.");
                 return;
             }
-            if (destinationUser[0].equals(loggedInUser)) {
+            if (destinationUser.getUsername().equals(loggedInUser)) {
                 System.out.println("Error: cannot transfer to your own account.");
                 return;
             }
-            String[] sourceUser = getUserByUsername(loggedInUser);
-            double sourceBalance = Double.parseDouble(sourceUser[6]);
-            if (sourceBalance < amount) {
+            User sourceUser = usersByUsername.get(loggedInUser);
+            if (sourceUser.getBalance() < amount) {
                 System.out.println("Error: insufficient balance.");
                 return;
             }
-            double destinationBalance = Double.parseDouble(destinationUser[6]);
-            sourceUser[6] = String.valueOf(sourceBalance - amount);
-            destinationUser[6] = String.valueOf(destinationBalance + amount);
+            sourceUser.withdraw(amount);
+            destinationUser.deposit(amount);
             System.out.println("Transferred successfully.");
         } catch (NumberFormatException e) {
             System.out.println("Error: invalid amount.");
@@ -267,12 +237,50 @@ public class Main {
         System.out.println("Logout successful.");
         loggedInUser = null;
     }
-    private static String[] getUserByUsername(String username) {
-        for (String[] user : users) {
-            if (user[0].equals(username)) {
-                return user;
-            }
-        }
-        return null;
+}
+class User {
+    private String username;
+    private String password;
+    private String fullName;
+    private String cardNumber;
+    private String phoneNumber;
+    private String email;
+    private double balance;
+    public User(String username, String password, String fullName, String cardNumber,
+                String phoneNumber, String email) {
+        this.username = username;
+        this.password = password;
+        this.fullName = fullName;
+        this.cardNumber = cardNumber;
+        this.phoneNumber = phoneNumber;
+        this.email = email;
+        this.balance = 0.0;
+    }
+    public String getUsername() {
+        return username;
+    }
+    public String getPassword() {
+        return password;
+    }
+    public String getFullName() {
+        return fullName;
+    }
+    public String getCardNumber() {
+        return cardNumber;
+    }
+    public String getPhoneNumber() {
+        return phoneNumber;
+    }
+    public String getEmail() {
+        return email;
+    }
+    public double getBalance() {
+        return balance;
+    }
+    public void deposit(double amount) {
+        balance += amount;
+    }
+    public void withdraw(double amount) {
+        balance -= amount;
     }
 }
